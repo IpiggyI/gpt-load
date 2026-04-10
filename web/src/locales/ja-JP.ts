@@ -218,7 +218,6 @@ export default {
     selectAll: "すべて選択",
     batchCopy: "一括コピー",
     batchTest: "一括テスト",
-    batchDelete: "一括削除",
     batchTestResults: "テスト結果",
     batchTestSummary: "{valid}/{total} 合格",
     selectGroup: "グループを選択してください",

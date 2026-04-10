@@ -220,7 +220,6 @@ export default {
     selectAll: "Select All",
     batchCopy: "Batch Copy",
     batchTest: "Batch Test",
-    batchDelete: "Batch Delete",
     batchTestResults: "Test Results",
     batchTestSummary: "{valid}/{total} passed",
     selectGroup: "Please select a group",

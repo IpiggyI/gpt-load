@@ -216,7 +216,6 @@ export default {
     selectAll: "全选",
     batchCopy: "批量复制",
     batchTest: "批量测试",
-    batchDelete: "批量删除",
     batchTestResults: "测试结果",
     batchTestSummary: "通过 {valid}/{total}",
     selectGroup: "请选择分组",
