@@ -18,6 +18,7 @@ import {
 } from "@vicons/ionicons5";
 import {
   NButton,
+  NCheckbox,
   NDropdown,
   NEmpty,
   NIcon,
@@ -26,10 +27,11 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NTag,
   useDialog,
   type MessageReactive,
 } from "naive-ui";
-import { h, ref, watch } from "vue";
+import { computed, h, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
 import KeyDeleteDialog from "./KeyDeleteDialog.vue";
@@ -50,12 +52,31 @@ const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
 const statusFilter = ref<"all" | "active" | "invalid" | "rate_limited">("all");
+const errorCodeFilter = ref<number | null>(null);
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
 const totalPages = ref(0);
 const dialog = useDialog();
 const confirmInput = ref("");
+
+// 批量选择状态
+const selectedKeyIds = ref<Set<number>>(new Set());
+const isSelectionMode = computed(() => selectedKeyIds.value.size > 0);
+const isAllSelected = computed(
+  () => keys.value.length > 0 && keys.value.every(k => selectedKeyIds.value.has(k.id))
+);
+const isIndeterminate = computed(
+  () => selectedKeyIds.value.size > 0 && !isAllSelected.value
+);
+
+// 错误码过滤选项
+const errorCodeOptions = [
+  { label: "401", value: 401 },
+  { label: "403", value: 403 },
+  { label: "429", value: 429 },
+  { label: "5xx", value: 500 },
+];
 
 // 状态过滤选项
 const statusOptions = [
@@ -117,10 +138,24 @@ watch(
 );
 
 watch([currentPage, pageSize], async () => {
+  selectedKeyIds.value = new Set();
   await loadKeys();
 });
 
 watch(statusFilter, async () => {
+  selectedKeyIds.value = new Set();
+  if (statusFilter.value === "active") {
+    errorCodeFilter.value = null;
+  }
+  if (currentPage.value !== 1) {
+    currentPage.value = 1;
+  } else {
+    await loadKeys();
+  }
+});
+
+watch(errorCodeFilter, async () => {
+  selectedKeyIds.value = new Set();
   if (currentPage.value !== 1) {
     currentPage.value = 1;
   } else {
@@ -152,6 +187,7 @@ watch(
 
 // 处理搜索输入的防抖
 function handleSearchInput() {
+  selectedKeyIds.value = new Set();
   if (currentPage.value !== 1) {
     currentPage.value = 1;
   } else {
@@ -205,6 +241,7 @@ async function loadKeys() {
       page_size: pageSize.value,
       status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
       key_value: searchText.value.trim() || undefined,
+      error_code: errorCodeFilter.value ?? undefined,
     });
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
@@ -608,6 +645,107 @@ async function clearAll() {
   });
 }
 
+function getErrorCodeTagType(code: number): "error" | "warning" | "default" | "info" {
+  if (code === 401 || code === 403) return "error";
+  if (code === 429) return "warning";
+  if (code >= 500) return "default";
+  return "info";
+}
+
+function toggleKeySelection(keyId: number) {
+  const newSet = new Set(selectedKeyIds.value);
+  if (newSet.has(keyId)) {
+    newSet.delete(keyId);
+  } else {
+    newSet.add(keyId);
+  }
+  selectedKeyIds.value = newSet;
+}
+
+function handleSelectAll(checked: boolean) {
+  if (checked) {
+    selectedKeyIds.value = new Set(keys.value.map(k => k.id));
+  } else {
+    selectedKeyIds.value = new Set();
+  }
+}
+
+function clearSelection() {
+  selectedKeyIds.value = new Set();
+}
+
+async function batchCopy() {
+  const selectedKeys = keys.value.filter(k => selectedKeyIds.value.has(k.id));
+  const text = selectedKeys.map(k => k.key_value).join("\n");
+  const success = await copy(text);
+  if (success) {
+    window.$message.success(t("keys.keyCopied"));
+  } else {
+    window.$message.error(t("keys.copyFailed"));
+  }
+}
+
+async function batchDelete() {
+  if (!props.selectedGroup?.id) return;
+  const selectedKeys = keys.value.filter(k => selectedKeyIds.value.has(k.id));
+  const keysText = selectedKeys.map(k => k.key_value).join("\n");
+
+  dialog.warning({
+    title: t("keys.batchDelete"),
+    content: t("keys.nSelected", { n: selectedKeyIds.value.size }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) return;
+      try {
+        await keysApi.deleteKeys(props.selectedGroup.id, keysText);
+        window.$message.success(t("keys.clearSuccess"));
+        clearSelection();
+        await loadKeys();
+        triggerSyncOperationRefresh(props.selectedGroup.name, "BATCH_DELETE");
+      } catch (_error) {
+        console.error("Batch delete failed");
+      }
+    },
+  });
+}
+
+async function batchTest() {
+  if (!props.selectedGroup?.id || testingMsg) return;
+  const selectedKeys = keys.value.filter(k => selectedKeyIds.value.has(k.id));
+  const keysText = selectedKeys.map(k => k.key_value).join("\n");
+
+  testingMsg = window.$message.info(t("keys.testingKey"), { duration: 0 });
+  try {
+    const response = await keysApi.testKeys(props.selectedGroup.id, keysText);
+    const results = response.results || [];
+    const validCount = results.filter(r => r.is_valid).length;
+
+    dialog.info({
+      title: t("keys.batchTestResults"),
+      content: () =>
+        h("div", null, [
+          h("p", null, t("keys.batchTestSummary", { valid: validCount, total: results.length })),
+          ...results
+            .filter(r => !r.is_valid)
+            .map(r =>
+              h("p", { style: { color: "#d03050", fontSize: "12px" } }, `${r.key_value.slice(0, 8)}... → ${r.error}`)
+            ),
+        ]),
+      positiveText: t("common.confirm"),
+    });
+
+    clearSelection();
+    await loadKeys();
+    triggerSyncOperationRefresh(props.selectedGroup.name, "BATCH_TEST");
+  } catch (_error) {
+    console.error("Batch test failed");
+  } finally {
+    testingMsg?.destroy();
+    testingMsg = null;
+  }
+}
+
 function changePage(page: number) {
   currentPage.value = page;
 }
@@ -621,6 +759,8 @@ function resetPage() {
   currentPage.value = 1;
   searchText.value = "";
   statusFilter.value = "all";
+  errorCodeFilter.value = null;
+  selectedKeyIds.value = new Set();
 }
 </script>
 
@@ -629,6 +769,14 @@ function resetPage() {
     <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
+        <n-checkbox
+          v-if="keys.length > 0"
+          :checked="isAllSelected"
+          :indeterminate="isIndeterminate"
+          @update:checked="handleSelectAll"
+        >
+          {{ isSelectionMode ? t("keys.nSelected", { n: selectedKeyIds.size }) : t("keys.selectAll") }}
+        </n-checkbox>
         <n-button type="success" size="small" @click="createDialogShow = true">
           <template #icon>
             <n-icon :component="AddCircleOutline" />
@@ -650,6 +798,15 @@ function resetPage() {
             size="small"
             style="width: 120px"
             :placeholder="t('keys.allStatus')"
+          />
+          <n-select
+            v-model:value="errorCodeFilter"
+            :options="errorCodeOptions"
+            :disabled="statusFilter === 'active'"
+            size="small"
+            clearable
+            style="width: 110px"
+            :placeholder="t('keys.errorCodeFilter')"
           />
           <n-input-group>
             <n-input
@@ -696,11 +853,16 @@ function resetPage() {
             v-for="key in keys"
             :key="key.id"
             class="key-card"
-            :class="getStatusClass(key.status)"
+            :class="[getStatusClass(key.status), { 'key-card--selected': selectedKeyIds.has(key.id) }]"
           >
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
+                <n-checkbox
+                  :checked="selectedKeyIds.has(key.id)"
+                  @update:checked="toggleKeySelection(key.id)"
+                  class="key-checkbox"
+                />
                 <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
                   <template #icon>
                     <n-icon :component="CheckmarkCircle" />
@@ -718,6 +880,15 @@ function resetPage() {
                     <n-icon :component="AlertCircleOutline" />
                   </template>
                   {{ t("keys.invalidShort") }}
+                </n-tag>
+                <n-tag
+                  v-if="key.last_error_code && key.status !== 'active'"
+                  size="small"
+                  round
+                  :bordered="false"
+                  :type="getErrorCodeTagType(key.last_error_code)"
+                >
+                  {{ key.last_error_code }}
                 </n-tag>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
@@ -852,6 +1023,27 @@ function resetPage() {
       :group-name="getGroupDisplayName(selectedGroup!)"
       @success="handleBatchDeleteSuccess"
     />
+
+    <!-- 浮动批量操作栏 -->
+    <Transition name="slide-up">
+      <div v-if="isSelectionMode" class="batch-action-bar">
+        <span>{{ t("keys.nSelected", { n: selectedKeyIds.size }) }}</span>
+        <n-space>
+          <n-button secondary type="info" size="small" @click="batchCopy">
+            {{ t("keys.batchCopy") }}
+          </n-button>
+          <n-button secondary type="warning" size="small" @click="batchTest">
+            {{ t("keys.batchTest") }}
+          </n-button>
+          <n-button secondary type="error" size="small" @click="batchDelete">
+            {{ t("keys.batchDelete") }}
+          </n-button>
+          <n-button size="small" @click="clearSelection">
+            {{ t("common.cancel") }}
+          </n-button>
+        </n-space>
+      </div>
+    </Transition>
   </div>
 
   <!-- 备注编辑对话框 -->
@@ -1285,6 +1477,44 @@ function resetPage() {
 .page-info {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* 批量选择 */
+.key-checkbox {
+  flex-shrink: 0;
+}
+
+.key-card--selected {
+  border-color: var(--n-primary-color) !important;
+  background-color: color-mix(in srgb, var(--n-primary-color) 5%, transparent) !important;
+}
+
+.batch-action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  padding: 12px 24px;
+  border-radius: 32px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateX(-50%) translateY(100%);
+  opacity: 0;
 }
 
 @media (max-width: 768px) {

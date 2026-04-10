@@ -213,7 +213,18 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		searchHash = s.EncryptionSvc.Hash(searchKeyword)
 	}
 
-	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchHash)
+	errorCodeStr := c.Query("error_code")
+	var errorCode *int
+	if errorCodeStr != "" {
+		parsed, err := strconv.Atoi(errorCodeStr)
+		if err != nil || parsed < 0 {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_error_code_filter")
+			return
+		}
+		errorCode = &parsed
+	}
+
+	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchHash, errorCode)
 
 	var keys []models.APIKey
 	paginatedResult, err := response.Paginate(c, query, &keys)

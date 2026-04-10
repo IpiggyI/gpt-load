@@ -290,7 +290,7 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 }
 
 // ListKeysInGroupQuery builds a query to list all keys within a specific group, filtered by status.
-func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchHash string) *gorm.DB {
+func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchHash string, errorCode *int) *gorm.DB {
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID)
 
 	if statusFilter != "" {
@@ -299,6 +299,10 @@ func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, sea
 
 	if searchHash != "" {
 		query = query.Where("key_hash = ?", searchHash)
+	}
+
+	if errorCode != nil {
+		query = query.Where("last_error_code = ?", *errorCode)
 	}
 
 	orderBy := "last_used_at desc, id desc"

@@ -121,6 +121,7 @@ type APIKey struct {
 	Notes        string     `gorm:"type:varchar(255);default:''" json:"notes"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount  int64      `gorm:"not null;default:0" json:"failure_count"`
+	LastErrorCode int        `gorm:"not null;default:0" json:"last_error_code"`
 	CooldownUntil *time.Time `gorm:"index" json:"cooldown_until,omitempty"`
 	LastUsedAt    *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`
 	CreatedAt    time.Time  `json:"created_at"`

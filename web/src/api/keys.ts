@@ -85,6 +85,7 @@ export const keysApi = {
     page_size: number;
     key_value?: string;
     status?: KeyStatus;
+    error_code?: number;
   }): Promise<{
     items: APIKey[];
     pagination: {

@@ -133,8 +133,9 @@ func (s *CronChecker) recoverRateLimitedKeys() {
 	for i := range rateLimitedKeys {
 		key := &rateLimitedKeys[i]
 		updates := map[string]any{
-			"status":         models.KeyStatusActive,
-			"cooldown_until": nil,
+			"status":          models.KeyStatusActive,
+			"cooldown_until":  nil,
+			"last_error_code": 0,
 		}
 
 		if err := s.DB.Model(&models.APIKey{}).Where("id = ? AND status = ?", key.ID, models.KeyStatusRateLimited).Updates(updates).Error; err != nil {
@@ -144,6 +145,7 @@ func (s *CronChecker) recoverRateLimitedKeys() {
 
 		key.Status = models.KeyStatusActive
 		key.CooldownUntil = nil
+		key.LastErrorCode = 0
 
 		if err := s.KeyProvider.addKeyToStore(key); err != nil {
 			// Store 恢复失败，回滚 DB 状态避免 key 永久掉出池

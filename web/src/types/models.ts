@@ -23,6 +23,7 @@ export interface APIKey {
   status: KeyStatus;
   request_count: number;
   failure_count: number;
+  last_error_code?: number;
   last_used_at?: string;
   created_at: string;
   updated_at: string;
